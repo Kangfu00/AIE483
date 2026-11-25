@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Passive Web Security Auditor — Prototype</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-badge">AI</div>
+        <div>
+          <h1>AI Web Security Posture Agent</h1>
+          <p class="subtitle">โปรโตไทป์ตรวจประเมินความปลอดภัยเว็บเชิงป้องกัน (Passive / Read-Only OWASP Audit)</p>
+        </div>
+      </div>
+      <div class="scope-pill" title="ไม่มีการส่ง Payload โจมตีหรือเจาะระบบ">
+        <span class="dot-safe"></span> Passive Read-Only Mode
+      </div>
+    </header>
+
+    <!-- 4-Step Flow Indicator -->
+    <nav class="stepper" aria-label="Audit Workflow Steps">
+      <div class="step-pill active" data-step="1"><span>1</span> กรอกลิงก์เป้าหมาย</div>
+      <div class="step-pill" data-step="2"><span>2</span> เลือก &amp; จัดลำดับการตรวจ</div>
+      <div class="step-pill" data-step="3"><span>3</span> ดำเนินการตรวจตามลำดับ</div>
+      <div class="step-pill" data-step="4"><span>4</span> รายงานสรุปผล</div>
+    </nav>
+
+    <!-- Error / Notice Banner -->
+    <div id="alert-banner" class="alert hidden" role="alert"></div>
+
+    <!-- Step 1: Target Input -->
+    <section class="card" id="section-input">
+      <div class="card-header">
+        <h2>1. ระบุเว็บไซต์ที่ต้องการตรวจประเมิน</h2>
+        <span class="muted">ระบบจะเปิดหน้าเว็บแบบอ่านอย่างเดียวผ่าน Playwright + HTTP Client เพื่อประเมินคอนฟิก</span>
+      </div>
+
+      <form id="recon-form" class="url-form">
+        <div class="input-row">
+          <input
+            id="target-url"
+            type="text"
+            placeholder="เช่น https://example.com หรือเลือก Demo Sandbox ด้านล่าง"
+            autocomplete="url"
+            required
+          >
+          <button type="submit" id="btn-analyze" class="btn btn-primary">
+            วิเคราะห์เบื้องต้น
+          </button>
+        </div>
+      </form>
+
+      <div class="demo-bar">
+        <span class="muted">ทดลองกับ Sandbox ในเครื่อง:</span>
+        <button type="button" class="btn btn-chip" id="btn-demo-weak">
+          Demo: Weak Config
+        </button>
+        <button type="button" class="btn btn-chip" id="btn-demo-hardened">
+          Demo: Hardened Config
+        </button>
+        <button type="button" class="btn btn-chip" id="btn-demo-external">
+          External: example.com
+        </button>
+      </div>
+
+      <details class="ai-settings">
+        <summary>ตั้งค่า AI Agent Engine (ค่าเริ่มต้นทำงานแบบ Offline ได้ทันทีโดยไม่ต้องใช้ API Key)</summary>
+        <div class="ai-grid">
+          <label>
+            AI Provider
+            <select id="ai-provider">
+              <option value="auto" selected>Auto (ใช้ Key ใน .env หรือ Offline Rule-Based)</option>
+              <option value="offline">Offline Rule-Based Agent</option>
+              <option value="gemini">Google Gemini API</option>
+              <option value="openai">OpenAI / Compatible API</option>
+              <option value="ollama">Local Ollama</option>
+            </select>
+          </label>
+          <label id="wrap-ai-model" class="hidden">
+            Model
+            <input id="ai-model" type="text" placeholder="เช่น gemini-2.5-flash / gpt-4o-mini / llama3.2">
+          </label>
+          <label id="wrap-ai-key" class="hidden">
+            API Key (ใช้เฉพาะรอบนี้ ไม่บันทึก)
+            <input id="ai-key" type="password" placeholder="ใส่ API Key (ถ้ามี)">
+          </label>
+          <label id="wrap-ai-base" class="hidden">
+            Base URL
+            <input id="ai-base-url" type="text" placeholder="เช่น http://127.0.0.1:11434">
+          </label>
+        </div>
+      </details>
+    </section>
+
+    <!-- Step 2: Recon & Selectable Ordered Plan -->
+    <section class="card hidden" id="section-plan">
+      <div class="card-header">
+        <div>
+          <h2>2. ผลการสำรวจเบื้องต้น &amp; แผนการตรวจที่ AI แนะนำ</h2>
+          <p class="muted" id="recon-meta-line"></p>
+        </div>
+        <span class="badge badge-ai" id="plan-ai-badge">AI Agent</span>
+      </div>
+
+      <div class="telemetry-strip" id="telemetry-strip"></div>
+
+      <div class="ai-callout" id="ai-plan-summary"></div>
+
+      <div class="split-grid">
+        <!-- Left: Existing Strong Defenses -->
+        <div class="panel">
+          <div class="panel-head">
+            <h3>ส่วนที่มีการป้องกันดีอยู่แล้ว</h3>
+            <span class="badge badge-pass" id="defense-count-badge">0</span>
+          </div>
+          <div id="existing-defenses-list" class="defense-list"></div>
+        </div>
+
+        <!-- Right: Selectable & Reorderable Checks -->
+        <div class="panel">
+          <div class="panel-head">
+            <h3>ส่วนที่ควรตรวจสอบ (เลือก &amp; จัดลำดับ)</h3>
+            <div class="toolbar-mini">
+              <button type="button" class="btn-link" id="btn-select-all">เลือกทั้งหมด</button>
+              <button type="button" class="btn-link" id="btn-select-rec">เฉพาะที่แนะนำ</button>
+              <button type="button" class="btn-link" id="btn-select-none">ล้าง</button>
+            </div>
+          </div>
+          <p class="muted small-hint">ติ๊กหัวข้อที่ต้องการ และใช้ปุ่ม ↑ / ↓ หรือลากเพื่อกำหนดลำดับการรัน</p>
+          <div id="recommended-checks-list" class="check-plan-list"></div>
+        </div>
+      </div>
+
+      <div class="action-footer">
+        <span class="muted" id="selected-counter">เลือกแล้ว 0 หัวข้อ</span>
+        <button type="button" id="btn-execute" class="btn btn-primary btn-lg">
+          ตกลง — เริ่มตรวจสอบตามลำดับที่เลือก
+        </button>
+      </div>
+    </section>
+
+    <!-- Step 3: Live Execution Progress -->
+    <section class="card hidden" id="section-progress">
+      <div class="card-header">
+        <h2>3. กำลังตรวจสอบตามลำดับที่เลือก...</h2>
+        <span id="progress-counter" class="badge badge-info">0 / 0</span>
+      </div>
+      <div class="progress-track">
+        <div id="progress-fill" class="progress-fill" style="width: 0%;"></div>
+      </div>
+      <p id="progress-status-text" class="muted">กำลังเตรียมตัวตรวจ...</p>
+      <div id="live-steps-feed" class="live-feed"></div>
+    </section>
+
+    <!-- Step 4: Final Report -->
+    <section class="card hidden" id="section-report">
+      <div class="card-header no-print-border">
+        <div>
+          <h2>4. รายงานสรุปความปลอดภัย (Security Posture Report)</h2>
+          <p class="muted" id="report-subtitle"></p>
+        </div>
+        <div class="export-actions no-print">
+          <button type="button" class="btn btn-secondary" id="btn-export-md">ดาวน์โหลด Markdown</button>
+          <button type="button" class="btn btn-secondary" id="btn-export-json">ดาวน์โหลด JSON</button>
+          <button type="button" class="btn btn-secondary" id="btn-print">พิมพ์ / PDF</button>
+          <button type="button" class="btn btn-primary" id="btn-reset">ตรวจเว็บใหม่</button>
+        </div>
+      </div>
+
+      <div class="report-hero">
+        <div class="score-card">
+          <div class="grade-circle" id="report-grade">-</div>
+          <div>
+            <div class="score-big"><span id="report-score">0</span><small>/100</small></div>
+            <div class="muted">Security Posture Score</div>
+          </div>
+        </div>
+        <div class="counts-grid" id="report-counts"></div>
+      </div>
+
+      <div class="ai-callout" id="report-exec-summary"></div>
+
+      <div class="roadmap-box">
+        <h3>ลำดับการปรับปรุงที่แนะนำ (Priority Remediation)</h3>
+        <ul id="report-priority-list"></ul>
+      </div>
+
+      <div class="results-section">
+        <h3>รายละเอียดผลการตรวจตามลำดับ</h3>
+        <div id="report-results-list" class="report-results-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
