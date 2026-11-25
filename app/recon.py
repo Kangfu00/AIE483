@@ -35,6 +35,8 @@ class _BasicHTMLMetadataParser(HTMLParser):
         self.scripts: list[ScriptSummary] = []
         self.forms: list[FormSummary] = []
         self.blank_links: list[LinkSummary] = []
+        self.same_origin_links: list[str] = []
+        self._seen_same_origin: set[str] = set()
         self.iframes_count = 0
         self._current_form: dict[str, Any] | None = None
 
@@ -77,15 +79,28 @@ class _BasicHTMLMetadataParser(HTMLParser):
                 tok in input_name for tok in ("csrf", "xsrf", "token", "nonce")
             ):
                 self._current_form["has_csrf_like_field"] = True
-        elif tag_l == "a" and attr_map.get("target", "").lower() == "_blank":
-            rel_tokens = {tok.lower() for tok in attr_map.get("rel", "").split()}
-            self.blank_links.append(
-                LinkSummary(
-                    href=urljoin(self.base_url, attr_map.get("href", ""))[:300],
-                    has_noopener="noopener" in rel_tokens,
-                    has_noreferrer="noreferrer" in rel_tokens,
+        elif tag_l == "a":
+            href_raw = attr_map.get("href", "").strip()
+            if href_raw and not href_raw.startswith("#"):
+                abs_href = urljoin(self.base_url, href_raw)
+                if (
+                    abs_href.lower().startswith(("http://", "https://"))
+                    and _origin_of(abs_href) == self.page_origin
+                    and abs_href != self.base_url
+                    and abs_href not in self._seen_same_origin
+                    and len(self.same_origin_links) < 15
+                ):
+                    self._seen_same_origin.add(abs_href)
+                    self.same_origin_links.append(abs_href[:300])
+            if attr_map.get("target", "").lower() == "_blank":
+                rel_tokens = {tok.lower() for tok in attr_map.get("rel", "").split()}
+                self.blank_links.append(
+                    LinkSummary(
+                        href=urljoin(self.base_url, href_raw)[:300],
+                        has_noopener="noopener" in rel_tokens,
+                        has_noreferrer="noreferrer" in rel_tokens,
+                    )
                 )
-            )
         elif tag_l == "iframe":
             self.iframes_count += 1
 
@@ -265,11 +280,32 @@ def _run_playwright_inspection_sync(target_url: str) -> dict[str, Any]:
                     };
                   });
 
+                  const sameOriginSet = new Set();
+                  const sameOriginLinks = [];
+                  for (const a of document.querySelectorAll('a[href]')) {
+                    const rawHref = (a.getAttribute('href') || '').trim();
+                    if (!rawHref || rawHref.startsWith('#')) continue;
+                    try {
+                      const u = new URL(rawHref, window.location.href);
+                      if (
+                        (u.protocol === 'http:' || u.protocol === 'https:') &&
+                        u.origin === pageOrigin &&
+                        u.href !== window.location.href &&
+                        !sameOriginSet.has(u.href)
+                      ) {
+                        sameOriginSet.add(u.href);
+                        sameOriginLinks.push(u.href.slice(0, 300));
+                        if (sameOriginLinks.length >= 15) break;
+                      }
+                    } catch {}
+                  }
+
                   return {
                     title: (document.title || '').slice(0, 200),
                     scripts: scripts.slice(0, 60),
                     forms: forms.slice(0, 30),
                     blank_links: blankLinks.slice(0, 50),
+                    same_origin_links: sameOriginLinks,
                     iframes_count: document.querySelectorAll('iframe').length,
                   };
                 }"""
@@ -386,6 +422,7 @@ async def run_passive_recon(
         scripts = [ScriptSummary(**s) for s in pw_data.get("scripts", [])]
         forms = [FormSummary(**f) for f in pw_data.get("forms", [])]
         blank_links = [LinkSummary(**lnk) for lnk in pw_data.get("blank_links", [])]
+        same_origin_links = list(pw_data.get("same_origin_links", []))[:15]
         iframes_count = int(pw_data.get("iframes_count", 0))
         cookies = pw_data.get("cookies", [])
         mixed_content_urls = pw_data.get("mixed_content_urls", [])
@@ -400,6 +437,7 @@ async def run_passive_recon(
         scripts = parser.scripts
         forms = parser.forms
         blank_links = parser.blank_links
+        same_origin_links = parser.same_origin_links
         iframes_count = parser.iframes_count
         cookies = _parse_set_cookie_metadata(resp.headers.get_list("set-cookie"))
         mixed_content_urls = []
@@ -427,6 +465,7 @@ async def run_passive_recon(
         mixed_content_urls=mixed_content_urls,
         third_party_domains=third_party_domains,
         observed_cors_headers=observed_cors,
+        same_origin_links=same_origin_links,
         security_txt_status=security_txt_status,
         robots_txt_status=robots_txt_status,
         playwright_used=pw_used,

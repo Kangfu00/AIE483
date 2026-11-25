@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.checks import CHECK_DEFINITIONS
-from app.models import CheckResult, ExistingDefenseItem, GradeLevel, SecurityReport
+from app.models import (
+    CheckResult,
+    ExistingDefenseItem,
+    GradeLevel,
+    ReportDiff,
+    SecurityReport,
+)
 
 
 def calculate_overall_score(results: list[CheckResult]) -> tuple[int, GradeLevel]:
@@ -51,6 +57,9 @@ def build_security_report(
     ai_fallback_reason: str | None,
     executive_summary: str,
     priority_actions: list[str],
+    detected_stack: list[str] | None = None,
+    stack_advice: str | None = None,
+    diff_from_previous: ReportDiff | None = None,
 ) -> SecurityReport:
     """Assemble final SecurityReport object."""
     counts = {"pass": 0, "warn": 0, "fail": 0, "info": 0, "error": 0}
@@ -70,6 +79,9 @@ def build_security_report(
         ai_fallback_reason=ai_fallback_reason,
         executive_summary=executive_summary,
         priority_actions=priority_actions,
+        detected_stack=detected_stack or [],
+        stack_advice=stack_advice,
+        diff_from_previous=diff_from_previous,
         existing_defenses=existing_defenses,
         results=results,
     )
@@ -85,14 +97,39 @@ def report_to_markdown(report: SecurityReport) -> str:
         f"- **Generated At (UTC):** `{report.generated_at}`",
         f"- **Overall Score:** **{report.overall_score}/100 (Grade {report.grade})**",
         f"- **AI Agent Mode:** `{report.ai_mode_used}`",
-        "",
-        "## Executive Summary",
-        "",
-        report.executive_summary,
-        "",
-        "## Priority Defensive Actions",
-        "",
     ]
+    if report.detected_stack:
+        lines.append(f"- **Detected Stack Hints:** {', '.join(f'`{s}`' for s in report.detected_stack)}")
+
+    if report.diff_from_previous:
+        d = report.diff_from_previous
+        sign = "+" if d.score_delta >= 0 else ""
+        lines.extend(
+            [
+                "",
+                "## Comparison vs Previous Audit",
+                "",
+                f"- **Previous:** {d.previous_score}/100 (Grade {d.previous_grade}) → **Current:** {report.overall_score}/100 (Grade {report.grade}) (`{sign}{d.score_delta}` points)",
+            ]
+        )
+        for item in d.improved:
+            lines.append(f"- **Improved:** {item.name} (`{item.previous_status.upper()}` {item.previous_score} → `{item.current_status.upper()}` {item.current_score})")
+        for item in d.regressed:
+            lines.append(f"- **Regressed:** {item.name} (`{item.previous_status.upper()}` {item.previous_score} → `{item.current_status.upper()}` {item.current_score})")
+
+    lines.extend(
+        [
+            "",
+            "## Executive Summary",
+            "",
+            report.executive_summary,
+            "",
+        ]
+    )
+    if report.stack_advice:
+        lines.extend(["## Stack-Specific Defensive Advice", "", report.stack_advice, ""])
+
+    lines.extend(["## Priority Defensive Actions", ""])
 
     for action in report.priority_actions:
         lines.append(f"- {action}")

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Awaitable, Callable
+from urllib.parse import urlparse
 
 import httpx
 
@@ -12,11 +13,18 @@ from app.checks import CHECK_DEFINITIONS
 from app.config import get_ai_settings, validate_llm_base_url
 from app.models import (
     AIConfigInput,
+    AgentToolTraceStep,
     CheckResult,
     ExistingDefenseItem,
     PriorityLevel,
     ReconSnapshot,
     RecommendedCheckItem,
+)
+from app.tools import (
+    ToolContext,
+    execute_passive_tool,
+    gemini_tool_schemas,
+    openai_tool_schemas,
 )
 
 
@@ -50,12 +58,19 @@ def _resolve_provider(ai_config: AIConfigInput | None) -> tuple[str, dict[str, s
 
 
 def _extract_json_object(raw_text: str) -> dict[str, Any]:
-    """Parse JSON even if wrapped in markdown code fences."""
-    cleaned = raw_text.strip()
+    """Parse JSON even if wrapped in reasoning tags, prose, or markdown fences."""
+    cleaned = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
     fence_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", cleaned, re.DOTALL)
     if fence_match:
-        cleaned = fence_match.group(1)
-    return json.loads(cleaned)
+        cleaned = fence_match.group(1).strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        first_brace = cleaned.find("{")
+        last_brace = cleaned.rfind("}")
+        if first_brace != -1 and last_brace > first_brace:
+            return json.loads(cleaned[first_brace : last_brace + 1])
+        raise
 
 
 async def _call_llm_json(
@@ -72,7 +87,7 @@ async def _call_llm_json(
         f"<untrusted_telemetry>\n{telemetry_json}\n</untrusted_telemetry>"
     )
 
-    async with httpx.AsyncClient(timeout=18.0) as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         if provider == "gemini":
             if not cfg["gemini_key"]:
                 raise ValueError("ยังไม่ได้ตั้งค่า GEMINI_API_KEY")
@@ -108,6 +123,7 @@ async def _call_llm_json(
                 json={
                     "model": cfg["openai_model"],
                     "temperature": 0.2,
+                    "max_tokens": 2048,
                     "response_format": {"type": "json_object"},
                     "messages": [
                         {"role": "system", "content": system_prompt},
@@ -408,21 +424,406 @@ def _offline_plan(snapshot: ReconSnapshot) -> tuple[str, list[ExistingDefenseIte
     return ai_summary, defenses, recommended
 
 
+AgentEventCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+
+async def _emit(cb: AgentEventCallback | None, event: str, payload: dict[str, Any]) -> None:
+    if cb is not None:
+        await cb(event, payload)
+
+
+def detect_tech_stack(snapshot: ReconSnapshot) -> list[str]:
+    """Infer non-intrusive web technology stack hints from passive HTTP headers."""
+    h = snapshot.response_headers
+    joined = " ".join([h.get("server", ""), h.get("x-powered-by", ""), h.get("via", "")]).lower()
+    hints: list[str] = []
+    patterns = [
+        ("uvicorn", "Python / FastAPI (Uvicorn)"),
+        ("starlette", "Python / Starlette"),
+        ("nginx", "Nginx"),
+        ("apache", "Apache HTTP Server"),
+        ("cloudflare", "Cloudflare"),
+        ("express", "Node.js / Express"),
+        ("next.js", "Next.js"),
+        ("vercel", "Vercel"),
+        ("gunicorn", "Python / Gunicorn"),
+        ("iis", "Microsoft IIS"),
+    ]
+    for needle, label in patterns:
+        if needle in joined and label not in hints:
+            hints.append(label)
+    if not hints and snapshot.is_https:
+        hints.append("HTTPS Web Application")
+    elif not hints:
+        hints.append("HTTP Web Application")
+    return hints[:5]
+
+
+def _compress_telemetry_for_llm(snapshot: ReconSnapshot) -> dict[str, Any]:
+    """Compress raw telemetry into concise structured summaries for LLM context efficiency."""
+    trimmed_headers = {k: v[:220] for k, v in list(snapshot.response_headers.items())[:30]}
+
+    ext_domains: dict[str, dict[str, int]] = {}
+    for sc in snapshot.scripts:
+        if sc.is_external and sc.src:
+            dom = urlparse(sc.src).netloc or "external"
+            bucket = ext_domains.setdefault(dom, {"total": 0, "missing_sri": 0})
+            bucket["total"] += 1
+            if not sc.has_integrity:
+                bucket["missing_sri"] += 1
+
+    return {
+        "final_url": snapshot.final_url,
+        "status_code": snapshot.status_code,
+        "is_https": snapshot.is_https,
+        "http_redirects_to_https": snapshot.http_redirects_to_https,
+        "title": snapshot.title,
+        "detected_stack": detect_tech_stack(snapshot),
+        "headers": trimmed_headers,
+        "cookies": [c.model_dump() for c in snapshot.cookies[:12]],
+        "scripts_summary": {
+            "total": len(snapshot.scripts),
+            "inline_count": sum(1 for s in snapshot.scripts if s.is_inline),
+            "external_by_domain": ext_domains,
+        },
+        "forms": [f.model_dump() for f in snapshot.forms[:8]],
+        "blank_links_missing_rel": len(
+            [lnk for lnk in snapshot.blank_links if not (lnk.has_noopener or lnk.has_noreferrer)]
+        ),
+        "same_origin_links": snapshot.same_origin_links[:6],
+        "iframes_count": snapshot.iframes_count,
+        "mixed_content_count": len(snapshot.mixed_content_urls),
+        "mixed_content_samples": snapshot.mixed_content_urls[:5],
+        "observed_cors_headers": snapshot.observed_cors_headers,
+        "security_txt_status": snapshot.security_txt_status,
+        "robots_txt_status": snapshot.robots_txt_status,
+    }
+
+
+async def _execute_cached_tool(
+    fn_name: str,
+    parsed_args: dict[str, Any],
+    ctx: ToolContext,
+    tool_cache: dict[str, tuple[str, dict[str, Any], int]],
+    trace: list[AgentToolTraceStep],
+    on_event: AgentEventCallback | None,
+) -> tuple[str, dict[str, Any]]:
+    cache_key = f"{fn_name}:{json.dumps(parsed_args, sort_keys=True, ensure_ascii=False)}"
+    if cache_key in tool_cache:
+        summary, findings, _ = tool_cache[cache_key]
+        return summary, findings
+
+    step_num = len(trace) + 1
+    await _emit(
+        on_event,
+        "tool_start",
+        {"step": step_num, "tool_name": fn_name, "arguments": parsed_args},
+    )
+    summary, findings, duration_ms = await execute_passive_tool(fn_name, parsed_args, ctx)
+    tool_cache[cache_key] = (summary, findings, duration_ms)
+    step_obj = AgentToolTraceStep(
+        step=step_num,
+        tool_name=fn_name,
+        arguments=parsed_args,
+        summary=summary,
+        findings=findings,
+        duration_ms=duration_ms,
+    )
+    trace.append(step_obj)
+    await _emit(on_event, "tool_done", step_obj.model_dump())
+    return summary, findings
+
+
+async def _run_offline_tool_sequence(
+    ctx: ToolContext,
+    on_event: AgentEventCallback | None = None,
+) -> list[AgentToolTraceStep]:
+    """Select and run relevant passive read-only tools deterministically."""
+    snap = ctx.snapshot
+    planned: list[tuple[str, dict[str, Any]]] = []
+
+    if snap.is_https:
+        planned.append(("inspect_tls_certificate", {}))
+    if "content-security-policy" in snap.response_headers:
+        planned.append(("parse_csp_directives", {}))
+    if snap.same_origin_links:
+        planned.append(("inspect_same_origin_subpage", {}))
+    planned.append(("check_dns_security_records", {}))
+    if snap.security_txt_status == 200 or snap.robots_txt_status == 200 or len(planned) < 2:
+        planned.append(("fetch_public_security_files", {}))
+
+    trace: list[AgentToolTraceStep] = []
+    cache: dict[str, tuple[str, dict[str, Any], int]] = {}
+    for tool_name, tool_args in planned[:4]:
+        await _execute_cached_tool(tool_name, tool_args, ctx, cache, trace, on_event)
+    return trace
+
+
+async def _run_openai_tool_loop(
+    cfg: dict[str, str],
+    system_prompt: str,
+    user_payload: dict[str, Any],
+    ctx: ToolContext,
+    on_event: AgentEventCallback | None = None,
+) -> tuple[dict[str, Any], list[AgentToolTraceStep]]:
+    """Run bounded OpenAI/OpenTyphoon function-calling loop followed by JSON output."""
+    if not cfg["openai_key"]:
+        raise ValueError("ยังไม่ได้ตั้งค่า OPENAI_API_KEY")
+    base_url = validate_llm_base_url(cfg["openai_base_url"])
+    headers = {
+        "Authorization": f"Bearer {cfg['openai_key']}",
+        "Content-Type": "application/json",
+    }
+    telemetry_json = json.dumps(user_payload, ensure_ascii=False)[:10000]
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                "Analyze ONLY the passive security telemetry inside <untrusted_telemetry>. "
+                "You may call up to 3-4 distinct passive tools first to gather deeper TLS, CSP, DNS, subpage, or metadata facts, "
+                "then output the final JSON object.\n\n"
+                f"<untrusted_telemetry>\n{telemetry_json}\n</untrusted_telemetry>"
+            ),
+        },
+    ]
+
+    tools = openai_tool_schemas()
+    trace: list[AgentToolTraceStep] = []
+    cache: dict[str, tuple[str, dict[str, Any], int]] = {}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for round_idx in range(1, 4):
+            await _emit(
+                on_event,
+                "agent_status",
+                {"message": f"AI Agent กำลังวิเคราะห์และเลือกเครื่องมือ (รอบที่ {round_idx})..."},
+            )
+            resp = await client.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json={
+                    "model": cfg["openai_model"],
+                    "temperature": 0.2,
+                    "max_tokens": 1200,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "messages": messages,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            msg = data["choices"][0]["message"]
+            tool_calls = msg.get("tool_calls") or []
+
+            if tool_calls:
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": msg.get("content") or "",
+                        "tool_calls": tool_calls[:4],
+                    }
+                )
+                for tc in tool_calls[:4]:
+                    fn = tc.get("function") or {}
+                    fn_name = str(fn.get("name", "")).strip()
+                    raw_args = fn.get("arguments") or "{}"
+                    try:
+                        parsed_args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+                    except json.JSONDecodeError:
+                        parsed_args = {}
+                    if not isinstance(parsed_args, dict):
+                        parsed_args = {}
+
+                    summary, findings = await _execute_cached_tool(
+                        fn_name, parsed_args, ctx, cache, trace, on_event
+                    )
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.get("id", f"call_{len(trace)}"),
+                            "content": json.dumps(
+                                {"summary": summary, "findings": findings},
+                                ensure_ascii=False,
+                            )[:3000],
+                        }
+                    )
+                continue
+
+            content = msg.get("content") or ""
+            if content:
+                try:
+                    parsed = _extract_json_object(content)
+                    if isinstance(parsed, dict) and ("ai_summary" in parsed or "recommended_checks" in parsed):
+                        return parsed, trace
+                except json.JSONDecodeError:
+                    pass
+            break
+
+        await _emit(on_event, "agent_status", {"message": "AI Agent กำลังสังเคราะห์แผนการตรวจสอบ..."})
+        messages.append(
+            {
+                "role": "user",
+                "content": "Now output ONLY the final valid JSON object matching the required schema (no extra text).",
+            }
+        )
+        final_resp = await client.post(
+            f"{base_url}/chat/completions",
+            headers=headers,
+            json={
+                "model": cfg["openai_model"],
+                "temperature": 0.2,
+                "max_tokens": 2048,
+                "response_format": {"type": "json_object"},
+                "messages": messages,
+            },
+        )
+        final_resp.raise_for_status()
+        final_data = final_resp.json()
+        final_text = final_data["choices"][0]["message"]["content"]
+        return _extract_json_object(final_text), trace
+
+
+async def _run_gemini_tool_loop(
+    cfg: dict[str, str],
+    system_prompt: str,
+    user_payload: dict[str, Any],
+    ctx: ToolContext,
+    on_event: AgentEventCallback | None = None,
+) -> tuple[dict[str, Any], list[AgentToolTraceStep]]:
+    """Run bounded Gemini function-calling loop followed by JSON output."""
+    if not cfg["gemini_key"]:
+        raise ValueError("ยังไม่ได้ตั้งค่า GEMINI_API_KEY")
+    model = cfg["gemini_model"]
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    headers = {"x-goog-api-key": cfg["gemini_key"], "Content-Type": "application/json"}
+    telemetry_json = json.dumps(user_payload, ensure_ascii=False)[:10000]
+    contents: list[dict[str, Any]] = [
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "text": (
+                        "Analyze ONLY the passive security telemetry inside <untrusted_telemetry>. "
+                        "Call relevant passive tools first if helpful, then output the final JSON object.\n\n"
+                        f"<untrusted_telemetry>\n{telemetry_json}\n</untrusted_telemetry>"
+                    )
+                }
+            ],
+        }
+    ]
+    tools_payload = [{"functionDeclarations": gemini_tool_schemas()}]
+    trace: list[AgentToolTraceStep] = []
+    cache: dict[str, tuple[str, dict[str, Any], int]] = {}
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for round_idx in range(1, 4):
+            await _emit(
+                on_event,
+                "agent_status",
+                {"message": f"AI Agent กำลังวิเคราะห์และเลือกเครื่องมือ (รอบที่ {round_idx})..."},
+            )
+            resp = await client.post(
+                url,
+                headers=headers,
+                json={
+                    "systemInstruction": {"parts": [{"text": system_prompt}]},
+                    "contents": contents,
+                    "tools": tools_payload,
+                    "generationConfig": {"temperature": 0.2},
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            candidate_content = data["candidates"][0]["content"]
+            parts = candidate_content.get("parts", [])
+            fn_calls = [p["functionCall"] for p in parts if "functionCall" in p]
+
+            if fn_calls:
+                contents.append({"role": "model", "parts": parts})
+                fn_responses: list[dict[str, Any]] = []
+                for fc in fn_calls[:4]:
+                    fn_name = str(fc.get("name", "")).strip()
+                    fn_args = fc.get("args") or {}
+                    summary, findings = await _execute_cached_tool(
+                        fn_name, fn_args, ctx, cache, trace, on_event
+                    )
+                    fn_responses.append(
+                        {
+                            "functionResponse": {
+                                "name": fn_name,
+                                "response": {"summary": summary, "findings": findings},
+                            }
+                        }
+                    )
+                contents.append({"role": "user", "parts": fn_responses})
+                continue
+
+            text_parts = [p.get("text", "") for p in parts if "text" in p]
+            combined = "\n".join(text_parts).strip()
+            if combined:
+                try:
+                    parsed = _extract_json_object(combined)
+                    if isinstance(parsed, dict) and ("ai_summary" in parsed or "recommended_checks" in parsed):
+                        return parsed, trace
+                except json.JSONDecodeError:
+                    pass
+            break
+
+        await _emit(on_event, "agent_status", {"message": "AI Agent กำลังสังเคราะห์แผนการตรวจสอบ..."})
+        contents.append({"role": "user", "parts": [{"text": "Output ONLY the final valid JSON object."}]})
+        final_resp = await client.post(
+            url,
+            headers=headers,
+            json={
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": contents,
+                "generationConfig": {
+                    "temperature": 0.2,
+                    "responseMimeType": "application/json",
+                },
+            },
+        )
+        final_resp.raise_for_status()
+        final_data = final_resp.json()
+        final_text = final_data["candidates"][0]["content"]["parts"][0]["text"]
+        return _extract_json_object(final_text), trace
+
+
 async def generate_audit_plan(
     snapshot: ReconSnapshot,
     ai_config: AIConfigInput | None = None,
-) -> tuple[str, str | None, str, list[ExistingDefenseItem], list[RecommendedCheckItem]]:
-    """Use configured AI provider (or offline fallback) to classify defenses and recommend checks."""
+    transport: httpx.AsyncBaseTransport | None = None,
+    on_event: AgentEventCallback | None = None,
+) -> tuple[
+    str,
+    str | None,
+    str,
+    list[ExistingDefenseItem],
+    list[RecommendedCheckItem],
+    list[AgentToolTraceStep],
+]:
+    """Use configured AI provider (with passive tool calling) to classify defenses and plan checks."""
     provider, cfg = _resolve_provider(ai_config)
     fallback_summary, fallback_defenses, fallback_recs = _offline_plan(snapshot)
+    ctx = ToolContext(snapshot=snapshot, transport=transport)
 
     if provider == "offline":
-        return "offline-rule-agent", None, fallback_summary, fallback_defenses, fallback_recs
+        await _emit(on_event, "agent_status", {"message": "Offline Agent กำลังเลือกเครื่องมือตรวจสอบ..."})
+        trace = await _run_offline_tool_sequence(ctx, on_event=on_event)
+        return "offline-rule-agent", None, fallback_summary, fallback_defenses, fallback_recs, trace
 
     allowed_ids = list(CHECK_DEFINITIONS.keys())
     system_prompt = (
-        "You are a defensive web security posture advisor. "
+        "You are a defensive web security posture planner agent with passive read-only tools. "
         "Your job is strictly passive, non-intrusive configuration auditing (NO exploit payloads, NO attacking). "
+        "First inspect any relevant aspects using the available passive tools (e.g., inspect_tls_certificate for HTTPS, "
+        "parse_csp_directives if CSP header exists, inspect_same_origin_subpage if same_origin_links are listed, "
+        "check_dns_security_records for remote domains, or fetch_public_security_files). "
+        "Keep every description and reason concise (1 short Thai sentence under 140 chars). "
+        "CRITICAL: existing_defenses MUST ONLY contain security controls verified as PRESENT and active in <untrusted_telemetry> "
+        "(e.g. is_https=true, or an actual header like strict-transport-security/content-security-policy/x-frame-options/x-content-type-options:nosniff present in headers). "
+        "NEVER list missing or broken controls inside existing_defenses; if none are present, return an empty array []. "
         "Respond in Thai (with standard English security terms) as a single JSON object with keys: "
         '"ai_summary" (string), '
         '"existing_defenses" (array of {title, category, evidence, description}), '
@@ -431,27 +832,25 @@ async def generate_audit_plan(
         'priority must be one of "high", "medium", "low".'
     )
 
-    compact_telemetry = {
-        "final_url": snapshot.final_url,
-        "status_code": snapshot.status_code,
-        "is_https": snapshot.is_https,
-        "http_redirects_to_https": snapshot.http_redirects_to_https,
-        "title": snapshot.title,
-        "headers": snapshot.response_headers,
-        "cookies": [c.model_dump() for c in snapshot.cookies],
-        "scripts_count": len(snapshot.scripts),
-        "external_scripts_without_sri": [s.src for s in snapshot.scripts if s.is_external and not s.has_integrity][:10],
-        "forms": [f.model_dump() for f in snapshot.forms[:10]],
-        "blank_links_missing_rel": len([lnk for lnk in snapshot.blank_links if not (lnk.has_noopener or lnk.has_noreferrer)]),
-        "iframes_count": snapshot.iframes_count,
-        "mixed_content_urls": snapshot.mixed_content_urls[:10],
-        "observed_cors_headers": snapshot.observed_cors_headers,
-        "security_txt_status": snapshot.security_txt_status,
-        "robots_txt_status": snapshot.robots_txt_status,
-    }
+    compact_telemetry = _compress_telemetry_for_llm(snapshot)
 
+    trace: list[AgentToolTraceStep] = []
     try:
-        llm_out = await _call_llm_json(provider, cfg, system_prompt, compact_telemetry)
+        if provider == "openai":
+            llm_out, trace = await _run_openai_tool_loop(
+                cfg, system_prompt, compact_telemetry, ctx, on_event=on_event
+            )
+        elif provider == "gemini":
+            llm_out, trace = await _run_gemini_tool_loop(
+                cfg, system_prompt, compact_telemetry, ctx, on_event=on_event
+            )
+        else:
+            trace = await _run_offline_tool_sequence(ctx, on_event=on_event)
+            compact_telemetry["tool_findings"] = [
+                {"tool": t.tool_name, "summary": t.summary, "findings": t.findings} for t in trace
+            ]
+            llm_out = await _call_llm_json(provider, cfg, system_prompt, compact_telemetry)
+
         ai_summary = str(llm_out.get("ai_summary") or fallback_summary)[:1000]
 
         defenses: list[ExistingDefenseItem] = []
@@ -498,10 +897,28 @@ async def generate_audit_plan(
             if fallback_item.id not in seen_ids:
                 ordered_recs.append(fallback_item)
 
-        return f"{provider}-llm", None, ai_summary, defenses, ordered_recs
+        return f"{provider}-llm", None, ai_summary, defenses, ordered_recs, trace
     except Exception as exc:  # noqa: BLE001
+        if not trace:
+            trace = await _run_offline_tool_sequence(ctx, on_event=on_event)
         reason = f"{provider} error ({type(exc).__name__}): fallback to offline agent"
-        return "offline-rule-agent (fallback)", reason, fallback_summary, fallback_defenses, fallback_recs
+        return "offline-rule-agent (fallback)", reason, fallback_summary, fallback_defenses, fallback_recs, trace
+
+
+def _offline_stack_advice(detected_stack: list[str], results: list[CheckResult]) -> str:
+    has_gaps = any(r.status in ("fail", "warn") for r in results)
+    joined = " ".join(detected_stack).lower()
+    if not has_gaps:
+        return f"Stack ({', '.join(detected_stack)}) มีการตั้งค่าป้องกันตามเกณฑ์ดีแล้ว ควรคง Security Headers และ TLS policy ไว้ต่อเนื่อง"
+    if "uvicorn" in joined or "fastapi" in joined or "starlette" in joined:
+        return "สำหรับ FastAPI/Uvicorn แนะนำเพิ่ม Starlette HTTP Middleware เพื่อแนบ CSP, X-Content-Type-Options, X-Frame-Options และใช้ Reverse Proxy (Nginx/Caddy) จัดการ HTTPS + HSTS"
+    if "nginx" in joined:
+        return "สำหรับ Nginx สามารถเพิ่มคำสั่ง add_header สำหรับ CSP, HSTS, nosniff, Referrer-Policy และตั้ง server_tokens off; ใน server block ได้ทันที"
+    if "cloudflare" in joined:
+        return "สำหรับ Cloudflare สามารถเปิด Always Use HTTPS, HSTS และเพิ่ม Security Response Headers ผ่าน Transform Rules ได้โดยไม่ต้องแก้โค้ดหลัก"
+    if "express" in joined or "next.js" in joined:
+        return "สำหรับ Node.js/Express/Next.js แนะนำใช้ helmet() หรือกำหนด security headers ใน next.config.js และตั้งค่า cookie flags (httpOnly, secure, sameSite)"
+    return "แนะนำกำหนด Security Headers ที่ระดับ Web Server/Reverse Proxy (Nginx, Caddy, Cloudflare) หรือ Middleware ของเฟรมเวิร์กเพื่อให้ครอบคลุมทุก Endpoint"
 
 
 def _offline_summarize_report(
@@ -509,7 +926,8 @@ def _offline_summarize_report(
     overall_score: int,
     grade: str,
     results: list[CheckResult],
-) -> tuple[str, list[str]]:
+    detected_stack: list[str],
+) -> tuple[str, list[str], str]:
     failed = [r for r in results if r.status == "fail"]
     warned = [r for r in results if r.status == "warn"]
     passed = [r for r in results if r.status == "pass"]
@@ -527,7 +945,7 @@ def _offline_summarize_report(
     if not priority_actions:
         priority_actions.append("รักษามาตรฐาน Security Headers, HTTPS และ Cookie Flags ปัจจุบัน และตรวจทบทวนสม่ำเสมอเมื่อมีการอัปเดตระบบ")
 
-    return executive_summary, priority_actions[:6]
+    return executive_summary, priority_actions[:6], _offline_stack_advice(detected_stack, results)
 
 
 async def summarize_report(
@@ -536,26 +954,36 @@ async def summarize_report(
     grade: str,
     results: list[CheckResult],
     ai_config: AIConfigInput | None = None,
-) -> tuple[str, str | None, str, list[str]]:
-    """Generate final executive summary and prioritized remediation roadmap."""
+    agent_trace: list[AgentToolTraceStep] | None = None,
+    detected_stack: list[str] | None = None,
+) -> tuple[str, str | None, str, list[str], str]:
+    """Remediation Advisor Agent: synthesize executive summary, actions, and stack-tailored advice."""
     provider, cfg = _resolve_provider(ai_config)
-    fallback_exec, fallback_actions = _offline_summarize_report(target_url, overall_score, grade, results)
+    stack_list = detected_stack or ["Web Application"]
+    fallback_exec, fallback_actions, fallback_stack_advice = _offline_summarize_report(
+        target_url, overall_score, grade, results, stack_list
+    )
 
     if provider == "offline":
-        return "offline-rule-agent", None, fallback_exec, fallback_actions
+        return "offline-rule-agent", None, fallback_exec, fallback_actions, fallback_stack_advice
 
     system_prompt = (
-        "You are a defensive web security advisor summarizing a passive configuration audit report. "
+        "You are a defensive web security Remediation Advisor Agent summarizing a passive configuration audit. "
         "Do NOT provide offensive payloads or exploit instructions. Focus strictly on defensive remediation. "
         "Respond in Thai as a JSON object with keys: "
-        '"executive_summary" (string, 2-4 concise sentences) and '
-        '"priority_actions" (array of 3-6 actionable defensive strings).'
+        '"executive_summary" (string, 2-4 concise sentences), '
+        '"priority_actions" (array of 3-6 actionable defensive strings), and '
+        '"stack_advice" (string, 1-2 concise sentences tailored to detected_stack).'
     )
 
     payload = {
         "target_url": target_url,
         "overall_score": overall_score,
         "grade": grade,
+        "detected_stack": stack_list,
+        "agent_tool_findings": [
+            {"tool": t.tool_name, "summary": t.summary} for t in (agent_trace or [])
+        ],
         "results": [
             {
                 "check_id": r.check_id,
@@ -575,7 +1003,8 @@ async def summarize_report(
         actions = [str(a)[:300] for a in llm_out.get("priority_actions", []) if str(a).strip()][:6]
         if not actions:
             actions = fallback_actions
-        return f"{provider}-llm", None, exec_summary, actions
+        stack_advice = str(llm_out.get("stack_advice") or fallback_stack_advice)[:600]
+        return f"{provider}-llm", None, exec_summary, actions, stack_advice
     except Exception as exc:  # noqa: BLE001
         reason = f"{provider} error ({type(exc).__name__}): fallback to offline agent"
-        return "offline-rule-agent (fallback)", reason, fallback_exec, fallback_actions
+        return "offline-rule-agent (fallback)", reason, fallback_exec, fallback_actions, fallback_stack_advice

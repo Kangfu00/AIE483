@@ -3,49 +3,12 @@
 from __future__ import annotations
 
 import json
-import socket
-import threading
-import time
-from typing import Iterator
 
-import pytest
-import uvicorn
 from fastapi.testclient import TestClient
 from playwright.sync_api import sync_playwright
 
 from app.main import app
 from app.recon import _launch_chromium
-
-
-def _find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-@pytest.fixture(scope="module")
-def live_server_url() -> Iterator[str]:
-    """Run the FastAPI app in a background uvicorn thread for live Playwright testing."""
-    port = _find_free_port()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-
-    deadline = time.time() + 10.0
-    while time.time() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                break
-        except OSError:
-            time.sleep(0.1)
-    else:
-        server.should_exit = True
-        raise RuntimeError("Live test server failed to start in time")
-
-    yield f"http://127.0.0.1:{port}"
-    server.should_exit = True
-    thread.join(timeout=5.0)
 
 
 def test_static_and_health_endpoints() -> None:
@@ -200,24 +163,94 @@ def test_browser_ui_full_workflow(live_server_url: str) -> None:
 
         try:
             page.goto(live_server_url, wait_until="networkidle")
+            page.click(".ai-settings summary")
+            page.select_option("#ai-provider", "offline")
+            page.click(".ai-settings summary")
+
+            # Verify draggable Pixel Spider mascot roams 2D, cycles emotes on click, and drags cleanly
+            spider = page.locator("#pixel-spider")
+            assert spider.is_visible()
+            box_start = spider.bounding_box()
+            page.wait_for_timeout(350)
+            box_after = spider.bounding_box()
+            assert box_start is not None and box_after is not None
+            assert box_start["width"] >= 80
+            assert box_after["x"] != box_start["x"] or box_after["y"] != box_start["y"]
+
+            # Click triggers inspecting emote, second click triggers reading book emote
+            spider.click(force=True)
+            assert "emote-inspecting" in (spider.get_attribute("class") or "")
+            assert page.locator("#spider-bubble").is_visible()
+            spider.click(force=True)
+            assert "emote-reading" in (spider.get_attribute("class") or "")
+
+            # Drag spider to a new position via pointer events
+            drag_box = spider.bounding_box()
+            assert drag_box is not None
+            cx = drag_box["x"] + drag_box["width"] / 2
+            cy = drag_box["y"] + drag_box["height"] / 2
+            page.mouse.move(cx, cy)
+            page.mouse.down()
+            page.mouse.move(180, 260, steps=6)
+            page.mouse.up()
+            dropped_box = spider.bounding_box()
+            assert dropped_box is not None
+            assert abs((dropped_box["x"] + dropped_box["width"] / 2) - 180) < 35
+            assert abs((dropped_box["y"] + dropped_box["height"] / 2) - 260) < 35
+
+            # Trigger web shot and verify silk strand + pixel cobweb SVG appear
+            page.click("#btn-spider-web")
+            assert page.locator("#spider-web-svg .pixel-web-shot").count() >= 1
+            assert page.locator("#spider-web-svg .pixel-cobweb").count() >= 1
+
             page.click("#btn-demo-weak")
             assert "/demo/vulnerable-config" in page.input_value("#target-url")
 
             page.click("#btn-analyze")
             page.wait_for_selector("#section-plan:not(.hidden)", timeout=15000)
+            assert page.locator("#section-input").is_hidden()
+            assert "emote-reading" in (spider.get_attribute("class") or "")
+            assert page.locator("#agent-trace-box").is_visible()
+            page.click("#agent-trace-box summary")
+            assert page.locator("#agent-trace-list .trace-item").count() >= 1
 
             # Reorder second item upward using the UI button
             second_up_btn = page.locator('#recommended-checks-list button[data-move-up="1"]')
             second_up_btn.click()
+            assert "emote-shield" in (spider.get_attribute("class") or "")
 
             page.click("#btn-execute")
             page.wait_for_selector("#section-report:not(.hidden)", timeout=20000)
+            assert page.locator("#section-input").is_hidden()
+            assert page.locator("#section-plan").is_hidden()
+            assert page.locator("#section-progress").is_hidden()
 
             score_text = page.inner_text("#report-score")
             grade_text = page.inner_text("#report-grade")
             assert score_text.isdigit()
             assert grade_text in {"A", "B", "C", "D", "F"}
             assert page.locator("#report-results-list .result-card").count() >= 1
+            assert page.locator("#report-stack-box").is_visible()
+
+            # Verify History drawer shows saved report
+            page.click("#btn-history")
+            page.wait_for_selector("#section-history:not(.hidden)", timeout=5000)
+            assert page.locator("#history-list .history-row").count() >= 1
+            page.click("#btn-close-history")
+            spider_cls = spider.get_attribute("class") or ""
+            assert any(em in spider_cls for em in ("emote-happy", "emote-reading", "emote-shield"))
+
+            # Verify wizard Back navigation (Step 4 -> Step 2 -> Step 1 -> Step 2 via stepper)
+            page.click("#btn-back-to-plan")
+            page.wait_for_selector("#section-plan:not(.hidden)", timeout=5000)
+            assert page.locator("#section-report").is_hidden()
+
+            page.click("#btn-back-to-input")
+            page.wait_for_selector("#section-input:not(.hidden)", timeout=5000)
+            assert page.locator("#section-plan").is_hidden()
+
+            page.click('.step-pill[data-step="4"]')
+            page.wait_for_selector("#section-report:not(.hidden)", timeout=5000)
         finally:
             browser.close()
 

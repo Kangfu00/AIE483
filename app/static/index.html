@@ -3,30 +3,70 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Passive Web Security Auditor — Prototype</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <title>AI Passive Web Security Auditor — Pixel Edition</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&family=Press+Start+2P&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=pixel11">
 </head>
 <body>
+  <div class="pixel-scanlines" aria-hidden="true"></div>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-badge">AI</div>
+        <div class="brand-badge" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="32" height="32" shape-rendering="crispEdges">
+            <rect x="3" y="1" width="10" height="1" fill="#e2e8f0"/>
+            <rect x="2" y="2" width="12" height="2" fill="#94a3b8"/>
+            <rect x="2" y="4" width="12" height="5" fill="#334155"/>
+            <rect x="4" y="3" width="8" height="6" fill="#475569"/>
+            <rect x="3" y="9" width="10" height="2" fill="#1e293b"/>
+            <rect x="5" y="11" width="6" height="2" fill="#1e293b"/>
+            <rect x="7" y="13" width="2" height="2" fill="#0f172a"/>
+            <rect x="6" y="4" width="4" height="1" fill="#38bdf8"/>
+            <rect x="5" y="5" width="2" height="3" fill="#38bdf8"/>
+            <rect x="9" y="5" width="2" height="3" fill="#38bdf8"/>
+            <rect x="6" y="7" width="4" height="1" fill="#38bdf8"/>
+            <rect x="7" y="5" width="2" height="2" fill="#e2e8f0"/>
+          </svg>
+        </div>
         <div>
+          <div class="pixel-kicker">LV.01 // PASSIVE SECURITY QUEST</div>
           <h1>AI Web Security Posture Agent</h1>
           <p class="subtitle">โปรโตไทป์ตรวจประเมินความปลอดภัยเว็บเชิงป้องกัน (Passive / Read-Only OWASP Audit)</p>
         </div>
       </div>
-      <div class="scope-pill" title="ไม่มีการส่ง Payload โจมตีหรือเจาะระบบ">
-        <span class="dot-safe"></span> Passive Read-Only Mode
+      <div class="topbar-right">
+        <button type="button" class="btn-webshot no-print" id="btn-history" title="ดูประวัติรายงานที่บันทึกไว้ใน SQLite">
+          HISTORY (<span id="history-count">0</span>)
+        </button>
+        <button type="button" class="btn-webshot no-print" id="btn-spider-web" title="สั่งให้น้องแมงมุมยิงใย (หรือดับเบิลคลิก / คลิกขวาที่ตัวน้อง)">
+          WEB SHOT
+        </button>
+        <div class="scope-pill" title="ไม่มีการส่ง Payload โจมตีหรือเจาะระบบ">
+          <span class="dot-safe"></span> PASSIVE READ-ONLY
+        </div>
       </div>
     </header>
 
+    <!-- Saved Audit History Drawer -->
+    <section class="card hidden no-print" id="section-history">
+      <div class="card-header">
+        <div>
+          <h2>ประวัติรายงานที่บันทึกไว้ (SQLite Persistence)</h2>
+          <p class="muted">คลิกเลือกรายงานเพื่อเปิดดู หรือสแกนเว็บเดิมซ้ำเพื่อเทียบคะแนน Before / After</p>
+        </div>
+        <button type="button" class="btn btn-secondary" id="btn-close-history">ปิดหน้าต่าง</button>
+      </div>
+      <div id="history-list" class="history-list"></div>
+    </section>
+
     <!-- 4-Step Flow Indicator -->
     <nav class="stepper" aria-label="Audit Workflow Steps">
-      <div class="step-pill active" data-step="1"><span>1</span> กรอกลิงก์เป้าหมาย</div>
-      <div class="step-pill" data-step="2"><span>2</span> เลือก &amp; จัดลำดับการตรวจ</div>
-      <div class="step-pill" data-step="3"><span>3</span> ดำเนินการตรวจตามลำดับ</div>
-      <div class="step-pill" data-step="4"><span>4</span> รายงานสรุปผล</div>
+      <button type="button" class="step-pill active" data-step="1"><span>1</span> กรอกลิงก์เป้าหมาย</button>
+      <button type="button" class="step-pill" data-step="2" disabled><span>2</span> เลือก &amp; จัดลำดับการตรวจ</button>
+      <button type="button" class="step-pill" data-step="3" disabled><span>3</span> ดำเนินการตรวจตามลำดับ</button>
+      <button type="button" class="step-pill" data-step="4" disabled><span>4</span> รายงานสรุปผล</button>
     </nav>
 
     <!-- Error / Notice Banner -->
@@ -76,7 +116,7 @@
               <option value="auto" selected>Auto (ใช้ Key ใน .env หรือ Offline Rule-Based)</option>
               <option value="offline">Offline Rule-Based Agent</option>
               <option value="gemini">Google Gemini API</option>
-              <option value="openai">OpenAI / Compatible API</option>
+              <option value="openai">OpenAI / Compatible (OpenTyphoon, ฯลฯ)</option>
               <option value="ollama">Local Ollama</option>
             </select>
           </label>
@@ -94,6 +134,15 @@
           </label>
         </div>
       </details>
+
+      <!-- Live Step 1 Recon & Agent Tool Trace Stream -->
+      <div id="recon-live-box" class="recon-live-box hidden">
+        <div class="recon-live-head">
+          <strong>Live Agent Pipeline</strong>
+          <span class="badge badge-info" id="recon-live-status">STARTING</span>
+        </div>
+        <div id="recon-live-feed" class="recon-live-feed"></div>
+      </div>
     </section>
 
     <!-- Step 2: Recon & Selectable Ordered Plan -->
@@ -109,6 +158,14 @@
       <div class="telemetry-strip" id="telemetry-strip"></div>
 
       <div class="ai-callout" id="ai-plan-summary"></div>
+
+      <details class="agent-trace-box" id="agent-trace-box">
+        <summary>
+          <span>Passive Tools ที่ AI Agent เลือกใช้</span>
+          <span class="badge badge-info" id="agent-trace-count">0</span>
+        </summary>
+        <div id="agent-trace-list" class="agent-trace-list"></div>
+      </details>
 
       <div class="split-grid">
         <!-- Left: Existing Strong Defenses -->
@@ -136,9 +193,14 @@
       </div>
 
       <div class="action-footer">
-        <span class="muted" id="selected-counter">เลือกแล้ว 0 หัวข้อ</span>
+        <div class="footer-left">
+          <button type="button" id="btn-back-to-input" class="btn btn-secondary">
+            ← ย้อนกลับ (แก้ URL)
+          </button>
+          <span class="muted" id="selected-counter">เลือกแล้ว 0 หัวข้อ</span>
+        </div>
         <button type="button" id="btn-execute" class="btn btn-primary btn-lg">
-          ตกลง — เริ่มตรวจสอบตามลำดับที่เลือก
+          ตกลง — เริ่มตรวจสอบตามลำดับที่เลือก →
         </button>
       </div>
     </section>
@@ -154,6 +216,11 @@
       </div>
       <p id="progress-status-text" class="muted">กำลังเตรียมตัวตรวจ...</p>
       <div id="live-steps-feed" class="live-feed"></div>
+      <div class="action-footer hidden" id="progress-error-footer">
+        <button type="button" id="btn-progress-back" class="btn btn-secondary">
+          ← ย้อนกลับไปเลือกหัวข้อ
+        </button>
+      </div>
     </section>
 
     <!-- Step 4: Final Report -->
@@ -164,6 +231,7 @@
           <p class="muted" id="report-subtitle"></p>
         </div>
         <div class="export-actions no-print">
+          <button type="button" class="btn btn-secondary" id="btn-back-to-plan">← แก้ไขรายการตรวจ</button>
           <button type="button" class="btn btn-secondary" id="btn-export-md">ดาวน์โหลด Markdown</button>
           <button type="button" class="btn btn-secondary" id="btn-export-json">ดาวน์โหลด JSON</button>
           <button type="button" class="btn btn-secondary" id="btn-print">พิมพ์ / PDF</button>
@@ -182,7 +250,11 @@
         <div class="counts-grid" id="report-counts"></div>
       </div>
 
+      <div id="report-diff-box" class="diff-box hidden"></div>
+
       <div class="ai-callout" id="report-exec-summary"></div>
+
+      <div id="report-stack-box" class="stack-box hidden"></div>
 
       <div class="roadmap-box">
         <h3>ลำดับการปรับปรุงที่แนะนำ (Priority Remediation)</h3>
@@ -196,6 +268,153 @@
     </section>
   </div>
 
-  <script src="/static/app.js"></script>
+  <!-- Full-Page Roaming & Draggable Pixel Spider Mascot -->
+  <div class="spider-roam-layer no-print" id="spider-roam-layer">
+    <svg class="spider-web-svg" id="spider-web-svg" aria-hidden="true"></svg>
+    <button
+      type="button"
+      class="pixel-spider"
+      id="pixel-spider"
+      title="ลากน้องแมงมุม, คลิกเปลี่ยนท่า หรือดับเบิลคลิก/คลิกขวาเพื่อยิงใย!"
+      aria-label="Pixel Spider Mascot"
+    >
+      <span class="spider-bubble hidden" id="spider-bubble"></span>
+      <svg viewBox="0 0 22 18" width="88" height="72" shape-rendering="crispEdges">
+        <!-- Silk thread shown when dragged -->
+        <g class="spider-prop prop-grabbed">
+          <rect x="9" y="0" width="1" height="5" fill="#94a3b8"/>
+          <rect x="8" y="1" width="1" height="1" fill="#e2e8f0"/>
+        </g>
+
+        <!-- Body (centered at x:6..13, y:5..10) -->
+        <rect x="7" y="5" width="6" height="1" fill="#cbd5e1"/>
+        <rect x="6" y="6" width="8" height="4" fill="#334155"/>
+        <rect x="7" y="6" width="6" height="1" fill="#64748b"/>
+        <rect x="6" y="10" width="8" height="1" fill="#1e293b"/>
+        <!-- Eyes -->
+        <rect x="7" y="7" width="2" height="2" fill="#38bdf8"/>
+        <rect x="11" y="7" width="2" height="2" fill="#38bdf8"/>
+        <rect x="7" y="7" width="1" height="1" fill="#e0f2fe"/>
+        <rect x="11" y="7" width="1" height="1" fill="#e0f2fe"/>
+        <!-- Fangs -->
+        <rect x="8" y="10" width="1" height="1" fill="#e2e8f0"/>
+        <rect x="11" y="10" width="1" height="1" fill="#e2e8f0"/>
+
+        <!-- Walking Frame A -->
+        <g class="spider-legs-a">
+          <rect x="4" y="6" width="2" height="1" fill="#e2e8f0"/>
+          <rect x="3" y="7" width="1" height="2" fill="#94a3b8"/>
+          <rect x="4" y="8" width="2" height="1" fill="#e2e8f0"/>
+          <rect x="3" y="9" width="1" height="1" fill="#94a3b8"/>
+          <rect x="2" y="10" width="1" height="2" fill="#94a3b8"/>
+          <rect x="5" y="9" width="1" height="1" fill="#e2e8f0"/>
+          <rect x="4" y="10" width="1" height="3" fill="#94a3b8"/>
+          <rect x="6" y="11" width="1" height="1" fill="#e2e8f0"/>
+          <rect x="5" y="12" width="1" height="2" fill="#94a3b8"/>
+
+          <rect x="14" y="6" width="2" height="1" fill="#e2e8f0"/>
+          <rect x="16" y="7" width="1" height="2" fill="#94a3b8"/>
+          <rect x="14" y="8" width="2" height="1" fill="#e2e8f0"/>
+          <rect x="16" y="9" width="1" height="1" fill="#94a3b8"/>
+          <rect x="17" y="10" width="1" height="2" fill="#94a3b8"/>
+          <rect x="14" y="9" width="1" height="1" fill="#e2e8f0"/>
+          <rect x="15" y="10" width="1" height="3" fill="#94a3b8"/>
+          <rect x="13" y="11" width="1" height="1" fill="#e2e8f0"/>
+          <rect x="14" y="12" width="1" height="2" fill="#94a3b8"/>
+        </g>
+
+        <!-- Walking Frame B -->
+        <g class="spider-legs-b">
+          <rect x="4" y="5" width="2" height="1" fill="#e2e8f0"/>
+          <rect x="3" y="6" width="1" height="1" fill="#94a3b8"/>
+          <rect x="2" y="7" width="1" height="2" fill="#94a3b8"/>
+          <rect x="4" y="8" width="2" height="1" fill="#e2e8f0"/>
+          <rect x="3" y="9" width="1" height="2" fill="#94a3b8"/>
+          <rect x="5" y="9" width="1" height="2" fill="#e2e8f0"/>
+          <rect x="4" y="11" width="1" height="1" fill="#94a3b8"/>
+          <rect x="3" y="12" width="1" height="2" fill="#94a3b8"/>
+          <rect x="6" y="11" width="1" height="3" fill="#94a3b8"/>
+
+          <rect x="14" y="5" width="2" height="1" fill="#e2e8f0"/>
+          <rect x="16" y="6" width="1" height="1" fill="#94a3b8"/>
+          <rect x="17" y="7" width="1" height="2" fill="#94a3b8"/>
+          <rect x="14" y="8" width="2" height="1" fill="#e2e8f0"/>
+          <rect x="16" y="9" width="1" height="2" fill="#94a3b8"/>
+          <rect x="14" y="9" width="1" height="2" fill="#e2e8f0"/>
+          <rect x="15" y="11" width="1" height="1" fill="#94a3b8"/>
+          <rect x="16" y="12" width="1" height="2" fill="#94a3b8"/>
+          <rect x="13" y="11" width="1" height="3" fill="#94a3b8"/>
+        </g>
+
+        <!-- Emote 1: Reading Book -->
+        <g class="spider-prop prop-reading">
+          <rect x="14" y="11" width="7" height="5" fill="#38bdf8"/>
+          <rect x="15" y="10" width="2" height="4" fill="#e2e8f0"/>
+          <rect x="18" y="10" width="2" height="4" fill="#e2e8f0"/>
+          <rect x="17" y="11" width="1" height="3" fill="#0284c7"/>
+          <rect x="15" y="11" width="2" height="1" fill="#334155"/>
+          <rect x="19" y="11" width="1" height="1" fill="#334155"/>
+          <rect x="15" y="13" width="1" height="1" fill="#334155"/>
+          <rect x="18" y="13" width="2" height="1" fill="#334155"/>
+          <rect x="9" y="2" width="1" height="1" fill="#38bdf8"/>
+          <rect x="11" y="1" width="1" height="1" fill="#e2e8f0"/>
+        </g>
+
+        <!-- Emote 2: Magnifying Glass -->
+        <g class="spider-prop prop-inspecting">
+          <rect x="14" y="13" width="1" height="1" fill="#94a3b8"/>
+          <rect x="15" y="12" width="1" height="1" fill="#cbd5e1"/>
+          <rect x="16" y="7" width="4" height="1" fill="#e2e8f0"/>
+          <rect x="16" y="11" width="4" height="1" fill="#e2e8f0"/>
+          <rect x="15" y="8" width="1" height="3" fill="#e2e8f0"/>
+          <rect x="20" y="8" width="1" height="3" fill="#e2e8f0"/>
+          <rect x="16" y="8" width="4" height="3" fill="#38bdf8"/>
+          <rect x="17" y="8" width="1" height="1" fill="#e0f2fe"/>
+        </g>
+
+        <!-- Emote 3: Coffee Mug -->
+        <g class="spider-prop prop-coffee">
+          <rect x="15" y="10" width="4" height="5" fill="#e2e8f0"/>
+          <rect x="19" y="11" width="1" height="3" fill="#cbd5e1"/>
+          <rect x="16" y="10" width="2" height="1" fill="#38bdf8"/>
+          <rect x="16" y="12" width="2" height="1" fill="#94a3b8"/>
+          <rect class="steam-dot" x="16" y="7" width="1" height="2" fill="#94a3b8"/>
+          <rect class="steam-dot" x="18" y="6" width="1" height="2" fill="#cbd5e1"/>
+        </g>
+
+        <!-- Emote 4: Cyber Shield -->
+        <g class="spider-prop prop-shield">
+          <rect x="16" y="6" width="4" height="1" fill="#e2e8f0"/>
+          <rect x="15" y="7" width="6" height="4" fill="#94a3b8"/>
+          <rect x="16" y="11" width="4" height="2" fill="#64748b"/>
+          <rect x="17" y="13" width="2" height="1" fill="#475569"/>
+          <rect x="16" y="8" width="4" height="3" fill="#38bdf8"/>
+          <rect x="17" y="8" width="2" height="2" fill="#e0f2fe"/>
+        </g>
+
+        <!-- Emote 5: Happy Pixel Heart -->
+        <g class="spider-prop prop-happy">
+          <rect x="8" y="1" width="2" height="1" fill="#38bdf8"/>
+          <rect x="11" y="1" width="2" height="1" fill="#38bdf8"/>
+          <rect x="7" y="2" width="7" height="1" fill="#38bdf8"/>
+          <rect x="8" y="3" width="5" height="1" fill="#38bdf8"/>
+          <rect x="9" y="4" width="3" height="1" fill="#38bdf8"/>
+          <rect x="10" y="5" width="1" height="1" fill="#38bdf8"/>
+          <rect x="8" y="2" width="1" height="1" fill="#e0f2fe"/>
+        </g>
+
+        <!-- Emote 6: Web Shot Jet -->
+        <g class="spider-prop prop-webbing">
+          <rect x="14" y="8" width="2" height="1" fill="#e2e8f0"/>
+          <rect x="16" y="7" width="2" height="1" fill="#38bdf8"/>
+          <rect x="18" y="6" width="2" height="1" fill="#e2e8f0"/>
+          <rect x="20" y="5" width="2" height="2" fill="#38bdf8"/>
+          <rect x="17" y="9" width="2" height="1" fill="#cbd5e1"/>
+        </g>
+      </svg>
+    </button>
+  </div>
+
+  <script src="/static/app.js?v=pixel11"></script>
 </body>
 </html>

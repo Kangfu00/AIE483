@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -88,11 +88,23 @@ class ReconSnapshot(BaseModel):
     mixed_content_urls: list[str] = Field(default_factory=list)
     third_party_domains: list[str] = Field(default_factory=list)
     observed_cors_headers: dict[str, str] = Field(default_factory=dict)
+    same_origin_links: list[str] = Field(default_factory=list)
     security_txt_status: int | None = None
     robots_txt_status: int | None = None
     playwright_used: bool = False
     playwright_note: str | None = None
     recon_duration_ms: int = 0
+
+
+class AgentToolTraceStep(BaseModel):
+    """Record of one passive read-only tool invocation by the AI agent."""
+
+    step: int
+    tool_name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    summary: str
+    findings: dict[str, Any] = Field(default_factory=dict)
+    duration_ms: int = 0
 
 
 class ExistingDefenseItem(BaseModel):
@@ -123,6 +135,7 @@ class ReconResponse(BaseModel):
     ai_mode_used: str
     ai_fallback_reason: str | None = None
     ai_summary: str
+    agent_trace: list[AgentToolTraceStep] = Field(default_factory=list)
     existing_defenses: list[ExistingDefenseItem]
     recommended_checks: list[RecommendedCheckItem]
 
@@ -152,6 +165,44 @@ class CheckResult(BaseModel):
     duration_ms: int = 0
 
 
+class CheckDiffItem(BaseModel):
+    """Per-check comparison against the previous audit of the same target."""
+
+    check_id: str
+    name: str
+    previous_status: CheckStatus
+    current_status: CheckStatus
+    previous_score: int
+    current_score: int
+    score_delta: int
+
+
+class ReportDiff(BaseModel):
+    """Before/after posture comparison against an earlier saved report."""
+
+    previous_report_id: str
+    previous_generated_at: str
+    previous_score: int
+    previous_grade: GradeLevel
+    score_delta: int
+    improved: list[CheckDiffItem] = Field(default_factory=list)
+    regressed: list[CheckDiffItem] = Field(default_factory=list)
+    unchanged_count: int = 0
+
+
+class ReportHistoryItem(BaseModel):
+    """Compact summary row for the audit history list."""
+
+    report_id: str
+    target_url: str
+    final_url: str
+    generated_at: str
+    overall_score: int
+    grade: GradeLevel
+    ai_mode_used: str
+    checks_count: int
+
+
 class SecurityReport(BaseModel):
     """Final compiled Security Posture Report."""
 
@@ -167,5 +218,8 @@ class SecurityReport(BaseModel):
     ai_fallback_reason: str | None = None
     executive_summary: str
     priority_actions: list[str] = Field(default_factory=list)
+    detected_stack: list[str] = Field(default_factory=list)
+    stack_advice: str | None = None
+    diff_from_previous: ReportDiff | None = None
     existing_defenses: list[ExistingDefenseItem] = Field(default_factory=list)
     results: list[CheckResult] = Field(default_factory=list)

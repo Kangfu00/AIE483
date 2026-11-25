@@ -5,11 +5,20 @@ from __future__ import annotations
 import ipaddress
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "audit_history.db"
+
+
+def get_db_path() -> Path:
+    """Resolve SQLite history database path dynamically."""
+    override = os.getenv("AUDIT_DB_PATH", "").strip()
+    return Path(override) if override else DEFAULT_DB_PATH
 
 BLOCKED_HOSTS = {
     "metadata.google.internal",

@@ -14,21 +14,31 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.agent import generate_audit_plan, summarize_report
+from app.agent import detect_tech_stack, generate_audit_plan, summarize_report
 from app.checks import CHECK_DEFINITIONS, run_single_check
 from app.config import normalize_and_validate_url
 from app.demo import router as demo_router
 from app.models import (
+    AgentToolTraceStep,
     CheckResult,
     ExecutePlanRequest,
     ExistingDefenseItem,
     ReconRequest,
     ReconResponse,
     ReconSnapshot,
+    ReportHistoryItem,
     SecurityReport,
 )
 from app.recon import run_passive_recon
 from app.report import build_security_report, calculate_overall_score, report_to_markdown
+from app.storage import (
+    compute_report_diff,
+    find_previous_report,
+    get_report,
+    init_db,
+    list_reports,
+    save_report,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MAX_CACHED_ITEMS = 100
@@ -56,6 +66,7 @@ app = FastAPI(
 
 app.include_router(demo_router)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+init_db()
 
 
 def _sse_event(event_name: str, payload: dict[str, Any]) -> str:
@@ -106,7 +117,7 @@ async def api_recon(req: ReconRequest) -> ReconResponse:
             detail=f"ไม่สามารถดึงข้อมูลจากเว็บไซต์เป้าหมายได้ ({type(exc).__name__})",
         ) from exc
 
-    ai_mode, fallback_reason, ai_summary, defenses, recommended = await generate_audit_plan(
+    ai_mode, fallback_reason, ai_summary, defenses, recommended, agent_trace = await generate_audit_plan(
         snapshot,
         req.ai_config,
     )
@@ -117,6 +128,7 @@ async def api_recon(req: ReconRequest) -> ReconResponse:
         {
             "snapshot": snapshot,
             "existing_defenses": defenses,
+            "agent_trace": agent_trace,
         },
     )
 
@@ -126,30 +138,120 @@ async def api_recon(req: ReconRequest) -> ReconResponse:
         ai_mode_used=ai_mode,
         ai_fallback_reason=fallback_reason,
         ai_summary=ai_summary,
+        agent_trace=agent_trace,
         existing_defenses=defenses,
         recommended_checks=recommended,
     )
 
 
-async def _execute_and_build_report(
+@app.post("/api/recon/stream")
+async def api_recon_stream(req: ReconRequest) -> StreamingResponse:
+    """Stream real-time passive recon and AI Agent tool-calling events via SSE."""
+    try:
+        validated_url = normalize_and_validate_url(req.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    async def event_stream() -> AsyncIterator[str]:
+        queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+
+        async def push_event(ev_name: str, payload: dict[str, Any]) -> None:
+            await queue.put((ev_name, payload))
+
+        async def worker() -> None:
+            try:
+                await push_event(
+                    "recon_start",
+                    {"url": validated_url, "message": "กำลังเปิดหน้าเว็บแบบ Read-Only ด้วย Playwright + HTTP..."},
+                )
+                snapshot = await run_passive_recon(validated_url)
+                await push_event(
+                    "recon_done",
+                    {
+                        "final_url": snapshot.final_url,
+                        "status_code": snapshot.status_code,
+                        "playwright_used": snapshot.playwright_used,
+                        "recon_duration_ms": snapshot.recon_duration_ms,
+                        "message": f"สำรวจหน้าเว็บเสร็จสิ้น (HTTP {snapshot.status_code}) — AI Agent กำลังเริ่มวิเคราะห์...",
+                    },
+                )
+
+                ai_mode, fallback_reason, ai_summary, defenses, recommended, agent_trace = await generate_audit_plan(
+                    snapshot,
+                    req.ai_config,
+                    on_event=push_event,
+                )
+
+                session_id = str(uuid4())
+                SESSION_STORE.put(
+                    session_id,
+                    {
+                        "snapshot": snapshot,
+                        "existing_defenses": defenses,
+                        "agent_trace": agent_trace,
+                    },
+                )
+                recon_resp = ReconResponse(
+                    session_id=session_id,
+                    snapshot=snapshot,
+                    ai_mode_used=ai_mode,
+                    ai_fallback_reason=fallback_reason,
+                    ai_summary=ai_summary,
+                    agent_trace=agent_trace,
+                    existing_defenses=defenses,
+                    recommended_checks=recommended,
+                )
+                await push_event("complete", {"recon": recon_resp.model_dump()})
+            except httpx.TimeoutException:
+                await push_event("error", {"detail": "เชื่อมต่อเว็บไซต์เป้าหมายไม่ทันเวลา (Timeout)"})
+            except httpx.HTTPError as exc:
+                await push_event(
+                    "error",
+                    {"detail": f"ไม่สามารถดึงข้อมูลจากเว็บไซต์เป้าหมายได้ ({type(exc).__name__})"},
+                )
+            except Exception as exc:  # noqa: BLE001
+                await push_event("error", {"detail": f"เกิดข้อผิดพลาดระหว่างวิเคราะห์ ({type(exc).__name__})"})
+            finally:
+                await queue.put(None)
+
+        task = asyncio.create_task(worker())
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                ev_name, payload = item
+                yield _sse_event(ev_name, payload)
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+async def _finalize_and_save_report(
     *,
     session_id: str,
     snapshot: ReconSnapshot,
     defenses: list[ExistingDefenseItem],
-    ordered_ids: list[str],
+    agent_trace: list[AgentToolTraceStep],
+    results: list[CheckResult],
     req: ExecutePlanRequest,
 ) -> SecurityReport:
-    results: list[CheckResult] = []
-    for idx, cid in enumerate(ordered_ids, start=1):
-        results.append(run_single_check(cid, snapshot, idx))
-
     overall_score, grade = calculate_overall_score(results)
-    ai_mode, fallback_reason, exec_summary, priority_actions = await summarize_report(
+    detected_stack = detect_tech_stack(snapshot)
+    ai_mode, fallback_reason, exec_summary, priority_actions, stack_advice = await summarize_report(
         snapshot.final_url,
         overall_score,
         grade,
         results,
         req.ai_config,
+        agent_trace=agent_trace,
+        detected_stack=detected_stack,
     )
     report = build_security_report(
         session_id=session_id,
@@ -163,9 +265,35 @@ async def _execute_and_build_report(
         ai_fallback_reason=fallback_reason,
         executive_summary=exec_summary,
         priority_actions=priority_actions,
+        detected_stack=detected_stack,
+        stack_advice=stack_advice,
     )
+    prev = find_previous_report(snapshot.final_url, exclude_report_id=report.report_id)
+    if prev is not None:
+        report.diff_from_previous = compute_report_diff(report, prev)
     REPORT_STORE.put(report.report_id, report)
+    save_report(report)
     return report
+
+
+async def _execute_and_build_report(
+    *,
+    session_id: str,
+    snapshot: ReconSnapshot,
+    defenses: list[ExistingDefenseItem],
+    agent_trace: list[AgentToolTraceStep],
+    ordered_ids: list[str],
+    req: ExecutePlanRequest,
+) -> SecurityReport:
+    results = [run_single_check(cid, snapshot, idx) for idx, cid in enumerate(ordered_ids, start=1)]
+    return await _finalize_and_save_report(
+        session_id=session_id,
+        snapshot=snapshot,
+        defenses=defenses,
+        agent_trace=agent_trace,
+        results=results,
+        req=req,
+    )
 
 
 @app.post("/api/execute", response_model=SecurityReport)
@@ -180,6 +308,7 @@ async def api_execute(req: ExecutePlanRequest) -> SecurityReport:
         session_id=req.session_id,
         snapshot=session_data["snapshot"],
         defenses=session_data["existing_defenses"],
+        agent_trace=session_data.get("agent_trace", []),
         ordered_ids=ordered_ids,
         req=req,
     )
@@ -195,6 +324,7 @@ async def api_execute_stream(req: ExecutePlanRequest) -> StreamingResponse:
     ordered_ids = _validate_selected_checks(req.selected_check_ids)
     snapshot: ReconSnapshot = session_data["snapshot"]
     defenses: list[ExistingDefenseItem] = session_data["existing_defenses"]
+    agent_trace: list[AgentToolTraceStep] = session_data.get("agent_trace", [])
 
     async def event_stream() -> AsyncIterator[str]:
         total = len(ordered_ids)
@@ -231,29 +361,15 @@ async def api_execute_stream(req: ExecutePlanRequest) -> StreamingResponse:
                 },
             )
 
-        yield _sse_event("summarizing", {"message": "AI Agent กำลังสังเคราะห์รายงานและจัดลำดับคำแนะนำ..."})
-        overall_score, grade = calculate_overall_score(results)
-        ai_mode, fallback_reason, exec_summary, priority_actions = await summarize_report(
-            snapshot.final_url,
-            overall_score,
-            grade,
-            results,
-            req.ai_config,
-        )
-        report = build_security_report(
+        yield _sse_event("summarizing", {"message": "Advisor Agent กำลังสังเคราะห์รายงานและคำแนะนำตาม Stack..."})
+        report = await _finalize_and_save_report(
             session_id=req.session_id,
-            target_url=snapshot.target_url,
-            final_url=snapshot.final_url,
-            existing_defenses=defenses,
+            snapshot=snapshot,
+            defenses=defenses,
+            agent_trace=agent_trace,
             results=results,
-            overall_score=overall_score,
-            grade=grade,
-            ai_mode_used=ai_mode,
-            ai_fallback_reason=fallback_reason,
-            executive_summary=exec_summary,
-            priority_actions=priority_actions,
+            req=req,
         )
-        REPORT_STORE.put(report.report_id, report)
         yield _sse_event("complete", {"report": report.model_dump()})
 
     return StreamingResponse(
@@ -263,15 +379,32 @@ async def api_execute_stream(req: ExecutePlanRequest) -> StreamingResponse:
     )
 
 
+def _resolve_saved_report(report_id: str) -> SecurityReport:
+    report: SecurityReport | None = REPORT_STORE.get(report_id) or get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="ไม่พบรายงานที่ระบุ (อาจหมดอายุหรือถูกล้างจากหน่วยความจำ)")
+    return report
+
+
+@app.get("/api/reports", response_model=list[ReportHistoryItem])
+async def api_list_reports(limit: int = Query(default=20, ge=1, le=100)) -> list[ReportHistoryItem]:
+    """List saved audit reports from SQLite history."""
+    return list_reports(limit=limit)
+
+
+@app.get("/api/reports/{report_id}", response_model=SecurityReport)
+async def api_get_report(report_id: str) -> SecurityReport:
+    """Fetch a full saved SecurityReport by ID."""
+    return _resolve_saved_report(report_id)
+
+
 @app.get("/api/reports/{report_id}/export")
 async def api_export_report(
     report_id: str,
     format: str = Query(default="markdown", pattern="^(markdown|json)$"),
 ) -> Response:
     """Download a generated report in Markdown or JSON format."""
-    report: SecurityReport | None = REPORT_STORE.get(report_id)
-    if report is None:
-        raise HTTPException(status_code=404, detail="ไม่พบรายงานที่ระบุ (อาจหมดอายุหรือถูกล้างจากหน่วยความจำ)")
+    report = _resolve_saved_report(report_id)
 
     if format == "json":
         return JSONResponse(
