@@ -11,7 +11,8 @@ import pytest
 from app.checks import CHECK_DEFINITIONS, run_single_check
 from app.config import normalize_and_validate_url
 from app.main import app
-from app.recon import ReconSnapshot, run_passive_recon
+from app.models import CheckResult, ReconSnapshot
+from app.recon import run_passive_recon
 from app.report import build_security_report, calculate_overall_score, report_to_markdown
 
 
@@ -132,7 +133,7 @@ _FULL_HEADERS = {
 }
 
 
-def _headers_result(headers: dict[str, str]):
+def _headers_result(headers: dict[str, str]) -> CheckResult:
     snap = ReconSnapshot(
         target_url="http://127.0.0.1/",
         final_url="http://127.0.0.1/",
@@ -165,6 +166,9 @@ def test_security_headers_complete_is_pass() -> None:
 
 
 def test_security_headers_no_pass_below_threshold_any_combination() -> None:
+    # 96 is written out on purpose instead of importing SECURITY_HEADERS_PASS_MIN:
+    # issue #4 fixes the contract at 96, so lowering the constant must break this
+    # test and force a new calibration sweep (calibration/REPORT.md, EXP2).
     keys = list(_FULL_HEADERS)
     for present in itertools.product([True, False], repeat=len(keys)):
         for unsafe_inline in (False, True):
