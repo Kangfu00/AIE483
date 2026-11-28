@@ -1,0 +1,196 @@
+{
+  "exp1_filter_info": {
+    "experiment": "filter info/error from weighted score",
+    "zero_division_cases": 0,
+    "max_abs_delta": 5,
+    "pages_with_grade_change": 0,
+    "rows": [
+      {
+        "url": "hardened",
+        "info_error_count": 1,
+        "current_score": 89,
+        "current_grade": "B",
+        "filtered_score": 89,
+        "filtered_grade": "B",
+        "delta": 0,
+        "grade_changed": false
+      },
+      {
+        "url": "bare",
+        "info_error_count": 2,
+        "current_score": 62,
+        "current_grade": "D",
+        "filtered_score": 57,
+        "filtered_grade": "D",
+        "delta": -5,
+        "grade_changed": false
+      },
+      {
+        "url": "insecure_cookies",
+        "info_error_count": 1,
+        "current_score": 53,
+        "current_grade": "F",
+        "filtered_score": 52,
+        "filtered_grade": "F",
+        "delta": -1,
+        "grade_changed": false
+      },
+      {
+        "url": "no_security_txt",
+        "info_error_count": 2,
+        "current_score": 62,
+        "current_grade": "D",
+        "filtered_score": 57,
+        "filtered_grade": "D",
+        "delta": -5,
+        "grade_changed": false
+      },
+      {
+        "url": "missing_coop_only",
+        "info_error_count": 2,
+        "current_score": 88,
+        "current_grade": "B",
+        "filtered_score": 88,
+        "filtered_grade": "B",
+        "delta": 0,
+        "grade_changed": false
+      }
+    ]
+  },
+  "exp2_status_rule": {
+    "experiment": "status from missing-list vs from score",
+    "list_rule_false_pass": 2,
+    "score_rule_false_pass": 1,
+    "list_rule_agreement": "3/5",
+    "score_rule_agreement": "4/5",
+    "rows": [
+      {
+        "profile": "hardened",
+        "expected": "pass",
+        "current_rule": "pass",
+        "score": 100,
+        "score_rule": "pass",
+        "current_agrees": true,
+        "score_rule_agrees": true
+      },
+      {
+        "profile": "missing_permissions_and_coop",
+        "expected": "warn",
+        "current_rule": "pass",
+        "score": 85,
+        "score_rule": "warn",
+        "current_agrees": false,
+        "score_rule_agrees": true
+      },
+      {
+        "profile": "missing_coop_only",
+        "expected": "warn",
+        "current_rule": "pass",
+        "score": 95,
+        "score_rule": "pass",
+        "current_agrees": false,
+        "score_rule_agrees": false
+      },
+      {
+        "profile": "bare",
+        "expected": "fail",
+        "current_rule": "fail",
+        "score": 15,
+        "score_rule": "fail",
+        "current_agrees": true,
+        "score_rule_agrees": true
+      },
+      {
+        "profile": "csp_unsafe_inline",
+        "expected": "warn",
+        "current_rule": "warn",
+        "score": 85,
+        "score_rule": "warn",
+        "current_agrees": true,
+        "score_rule_agrees": true
+      }
+    ]
+  },
+  "exp3_observability": {
+    "experiment": "observability signal for mixed-content",
+    "false_pass_current": true,
+    "false_pass_fixed_by_optionA": true,
+    "breaks_real_pass_case": false,
+    "rows": [
+      {
+        "case": "no_playwright_cannot_observe",
+        "current": "pass",
+        "score": 100,
+        "optionA_playwright_flag": "info"
+      },
+      {
+        "case": "playwright_saw_no_mixed",
+        "current": "pass",
+        "score": 100,
+        "optionA_playwright_flag": "pass"
+      },
+      {
+        "case": "playwright_saw_mixed",
+        "current": "fail",
+        "score": 55,
+        "optionA_playwright_flag": "fail"
+      }
+    ]
+  },
+  "exp4_private_ip": {
+    "experiment": "private IP policy",
+    "optionA_demo_works": true,
+    "optionA_closes_rfc1918": true,
+    "optionB_demo_works": false,
+    "optionB_closes_rfc1918": true,
+    "note": "option B breaks the loopback demo because the UI targets 127.0.0.1",
+    "rows": [
+      {
+        "probe": "demo_loopback",
+        "host": "127.0.0.1",
+        "current": "allowed",
+        "optionA": "allowed",
+        "optionB": "blocked",
+        "optionC": "allowed"
+      },
+      {
+        "probe": "private_lan",
+        "host": "192.168.1.1",
+        "current": "allowed",
+        "optionA": "blocked",
+        "optionB": "blocked",
+        "optionC": "blocked"
+      },
+      {
+        "probe": "private_10",
+        "host": "10.0.0.5",
+        "current": "allowed",
+        "optionA": "blocked",
+        "optionB": "blocked",
+        "optionC": "blocked"
+      },
+      {
+        "probe": "metadata",
+        "host": "169.254.169.254",
+        "current": "blocked",
+        "optionA": "blocked",
+        "optionB": "blocked",
+        "optionC": "blocked"
+      },
+      {
+        "probe": "public",
+        "host": "example.com",
+        "current": "allowed",
+        "optionA": "allowed",
+        "optionB": "allowed",
+        "optionC": "allowed"
+      }
+    ]
+  },
+  "exp5_redirect_latency": {
+    "experiment": "redirect handling latency",
+    "follow_redirects_ms_median": 656.4,
+    "manual_ms_median": 581.9,
+    "note": "manual hop validation adds one request per redirect hop, not per page"
+  }
+}

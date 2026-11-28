@@ -1,0 +1,915 @@
+{
+  "corpus": "remote",
+  "per_check_agreement": {
+    "clickjacking_defense": "11/14",
+    "cookie_hygiene": "1/9",
+    "cors_info_disclosure": "11/14",
+    "https_transport": "10/14",
+    "mixed_content_sri": "0/6",
+    "security_headers": "12/14"
+  },
+  "rows": [
+    {
+      "host": "example.com",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "fail",
+      "tool_score": 15,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "example.com",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "fail",
+      "tool_score": 20,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "example.com",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": false,
+        "redirection": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "warn",
+      "tool_score": 70,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "example.com",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "github.com",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": true,
+        "x-content-type-options": true,
+        "referrer-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "warn",
+      "tool_score": 70,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "github.com",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "github.com",
+      "check": "cookie_hygiene",
+      "observatory_tests": {
+        "cookies": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "warn",
+      "tool_score": 60,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "github.com",
+      "check": "mixed_content_sri",
+      "observatory_tests": {
+        "subresource-integrity": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "warn",
+      "tool_score": 65,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "github.com",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "github.com",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "mozilla.org",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": true,
+        "referrer-policy": true
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "warn",
+      "tool_score": 75,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "mozilla.org",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "mozilla.org",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "mozilla.org",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "cloudflare.com",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": true,
+        "referrer-policy": true
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "warn",
+      "tool_score": 85,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "cloudflare.com",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "cloudflare.com",
+      "check": "cookie_hygiene",
+      "observatory_tests": {
+        "cookies": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "warn",
+      "tool_score": 60,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "cloudflare.com",
+      "check": "mixed_content_sri",
+      "observatory_tests": {
+        "subresource-integrity": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "warn",
+      "tool_score": 80,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "cloudflare.com",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "cloudflare.com",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "vercel.com",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": true,
+        "referrer-policy": false
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "warn",
+      "tool_score": 70,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "vercel.com",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "vercel.com",
+      "check": "cookie_hygiene",
+      "observatory_tests": {
+        "cookies": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "fail",
+      "tool_score": 25,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "vercel.com",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "vercel.com",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "warn",
+      "tool_score": 65,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "stripe.com",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": true,
+        "x-content-type-options": true,
+        "referrer-policy": false
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "warn",
+      "tool_score": 75,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "stripe.com",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "stripe.com",
+      "check": "cookie_hygiene",
+      "observatory_tests": {
+        "cookies": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "fail",
+      "tool_score": 25,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "stripe.com",
+      "check": "mixed_content_sri",
+      "observatory_tests": {
+        "subresource-integrity": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "warn",
+      "tool_score": 65,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "stripe.com",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "stripe.com",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "npmjs.com",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": true,
+        "referrer-policy": true
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "warn",
+      "tool_score": 85,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "npmjs.com",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "warn",
+      "tool_score": 80,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "npmjs.com",
+      "check": "cookie_hygiene",
+      "observatory_tests": {
+        "cookies": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "info",
+      "tool_score": 90,
+      "comparable": false,
+      "agree": false
+    },
+    {
+      "host": "npmjs.com",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": false
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "npmjs.com",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "python.org",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "fail",
+      "tool_score": 15,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "python.org",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "warn",
+      "tool_score": 80,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "python.org",
+      "check": "mixed_content_sri",
+      "observatory_tests": {
+        "subresource-integrity": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "warn",
+      "tool_score": 70,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "python.org",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "python.org",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "owasp.org",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": true,
+        "referrer-policy": true
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "warn",
+      "tool_score": 85,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "owasp.org",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "owasp.org",
+      "check": "cookie_hygiene",
+      "observatory_tests": {
+        "cookies": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "fail",
+      "tool_score": 25,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "owasp.org",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "owasp.org",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "warn",
+      "tool_score": 85,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "fastapi.tiangolo.com",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": true,
+        "referrer-policy": true
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "warn",
+      "tool_score": 50,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "fastapi.tiangolo.com",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "fail",
+      "tool_score": 20,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "fastapi.tiangolo.com",
+      "check": "mixed_content_sri",
+      "observatory_tests": {
+        "subresource-integrity": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "warn",
+      "tool_score": 80,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "fastapi.tiangolo.com",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": false,
+        "redirection": true
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "warn",
+      "tool_score": 70,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "fastapi.tiangolo.com",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "warn",
+      "tool_score": 80,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "shopify.com",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": true
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "fail",
+      "tool_score": 35,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "shopify.com",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "fail",
+      "tool_score": 20,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "shopify.com",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": false
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "shopify.com",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "wikipedia.org",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "fail",
+      "tool_score": 15,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "wikipedia.org",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "fail",
+      "tool_score": 20,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "wikipedia.org",
+      "check": "cookie_hygiene",
+      "observatory_tests": {
+        "cookies": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "info",
+      "tool_score": 90,
+      "comparable": false,
+      "agree": false
+    },
+    {
+      "host": "wikipedia.org",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "warn",
+      "tool_score": 70,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "wikipedia.org",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "reddit.com",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": true
+      },
+      "observatory_verdict": "warn",
+      "tool_status": "warn",
+      "tool_score": 55,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "reddit.com",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "warn",
+      "tool_score": 80,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "reddit.com",
+      "check": "cookie_hygiene",
+      "observatory_tests": {
+        "cookies": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "fail",
+      "tool_score": 25,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "reddit.com",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "reddit.com",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "netlify.com",
+      "check": "security_headers",
+      "observatory_tests": {
+        "content-security-policy": false,
+        "x-content-type-options": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "fail",
+      "tool_score": 25,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "netlify.com",
+      "check": "clickjacking_defense",
+      "observatory_tests": {
+        "x-frame-options": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "fail",
+      "tool_score": 20,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "netlify.com",
+      "check": "cookie_hygiene",
+      "observatory_tests": {
+        "cookies": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "info",
+      "tool_score": 90,
+      "comparable": false,
+      "agree": false
+    },
+    {
+      "host": "netlify.com",
+      "check": "mixed_content_sri",
+      "observatory_tests": {
+        "subresource-integrity": false
+      },
+      "observatory_verdict": "fail",
+      "tool_status": "warn",
+      "tool_score": 65,
+      "comparable": true,
+      "agree": false
+    },
+    {
+      "host": "netlify.com",
+      "check": "https_transport",
+      "observatory_tests": {
+        "strict-transport-security": true,
+        "redirection": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    },
+    {
+      "host": "netlify.com",
+      "check": "cors_info_disclosure",
+      "observatory_tests": {
+        "cross-origin-resource-sharing": true,
+        "cross-origin-embedder-policy": true
+      },
+      "observatory_verdict": "pass",
+      "tool_status": "pass",
+      "tool_score": 100,
+      "comparable": true,
+      "agree": true
+    }
+  ]
+}
