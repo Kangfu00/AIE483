@@ -1,0 +1,103 @@
+{
+  "corpus": "canary",
+  "agreement": "9/12",
+  "agreement_pct": 75.0,
+  "rows": [
+    {
+      "profile": "hardened",
+      "check": "security_headers",
+      "expected": "pass",
+      "actual": "pass",
+      "score": 100,
+      "agree": true
+    },
+    {
+      "profile": "hardened",
+      "check": "clickjacking_defense",
+      "expected": "pass",
+      "actual": "pass",
+      "score": 100,
+      "agree": true
+    },
+    {
+      "profile": "hardened",
+      "check": "cookie_hygiene",
+      "expected": "warn",
+      "actual": "warn",
+      "score": 88,
+      "agree": true
+    },
+    {
+      "profile": "missing_permissions_and_coop",
+      "check": "security_headers",
+      "expected": "warn",
+      "actual": "pass",
+      "score": 85,
+      "agree": false
+    },
+    {
+      "profile": "missing_coop_only",
+      "check": "security_headers",
+      "expected": "warn",
+      "actual": "pass",
+      "score": 95,
+      "agree": false
+    },
+    {
+      "profile": "bare",
+      "check": "security_headers",
+      "expected": "fail",
+      "actual": "fail",
+      "score": 15,
+      "agree": true
+    },
+    {
+      "profile": "bare",
+      "check": "clickjacking_defense",
+      "expected": "fail",
+      "actual": "fail",
+      "score": 20,
+      "agree": true
+    },
+    {
+      "profile": "bare",
+      "check": "cookie_hygiene",
+      "expected": "info",
+      "actual": "info",
+      "score": 90,
+      "agree": true
+    },
+    {
+      "profile": "csp_unsafe_inline",
+      "check": "security_headers",
+      "expected": "warn",
+      "actual": "warn",
+      "score": 85,
+      "agree": true
+    },
+    {
+      "profile": "insecure_cookies",
+      "check": "cookie_hygiene",
+      "expected": "fail",
+      "actual": "fail",
+      "score": 25,
+      "agree": true
+    },
+    {
+      "profile": "clickjacking_via_csp",
+      "check": "clickjacking_defense",
+      "expected": "pass",
+      "actual": "warn",
+      "score": 80,
+      "agree": false
+    },
+    {
+      "profile": "no_security_txt",
+      "check": "security_metadata",
+      "expected": "info",
+      "actual": "info",
+      "score": 85,
+      "agree": true
+    }
+  ]
+}
