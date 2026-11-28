@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 
 import httpx
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from app.checks import CHECK_DEFINITIONS, run_single_check
 from app.config import normalize_and_validate_url
 from app.main import app
+from app.models import CheckResult, ReconSnapshot
 from app.recon import run_passive_recon
 from app.report import build_security_report, calculate_overall_score, report_to_markdown
 
@@ -118,3 +120,60 @@ def test_markdown_report_export_format() -> None:
     assert "# Passive Web Security Posture Report" in md
     assert "| 1 | HTTP Security Headers ตามมาตรฐาน OWASP | `PASS` |" in md
     assert "สรุปผลการทดสอบตัวอย่าง" in md
+
+
+# --- security_headers status must agree with score (issue #4) -----------------
+
+_FULL_HEADERS = {
+    "content-security-policy": "default-src 'self'",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+    "permissions-policy": "geolocation=()",
+    "cross-origin-opener-policy": "same-origin",
+}
+
+
+def _headers_result(headers: dict[str, str]) -> CheckResult:
+    snap = ReconSnapshot(
+        target_url="http://127.0.0.1/",
+        final_url="http://127.0.0.1/",
+        scheme="http",
+        status_code=200,
+        is_https=False,
+        response_headers=headers,
+    )
+    return run_single_check("security_headers", snap, 1)
+
+
+@pytest.mark.parametrize(
+    "dropped",
+    [
+        ("cross-origin-opener-policy",),
+        ("permissions-policy", "cross-origin-opener-policy"),
+    ],
+)
+def test_security_headers_incomplete_optional_headers_is_not_pass(dropped: tuple[str, ...]) -> None:
+    headers = {k: v for k, v in _FULL_HEADERS.items() if k not in dropped}
+    result = _headers_result(headers)
+    assert result.score < 100
+    assert result.status == "warn"
+
+
+def test_security_headers_complete_is_pass() -> None:
+    result = _headers_result(dict(_FULL_HEADERS))
+    assert result.score == 100
+    assert result.status == "pass"
+
+
+def test_security_headers_no_pass_below_threshold_any_combination() -> None:
+    # 96 is written out on purpose instead of importing SECURITY_HEADERS_PASS_MIN:
+    # issue #4 fixes the contract at 96, so lowering the constant must break this
+    # test and force a new calibration sweep (calibration/REPORT.md, EXP2).
+    keys = list(_FULL_HEADERS)
+    for present in itertools.product([True, False], repeat=len(keys)):
+        for unsafe_inline in (False, True):
+            headers = {k: v for k, v, keep in zip(keys, _FULL_HEADERS.values(), present) if keep}
+            if unsafe_inline and "content-security-policy" in headers:
+                headers["content-security-policy"] = "default-src 'self' 'unsafe-inline'"
+            result = _headers_result(headers)
+            assert not (result.status == "pass" and result.score < 96), (headers, result.score)

@@ -114,6 +114,11 @@ def _check_https_transport(snapshot: ReconSnapshot, order_index: int) -> CheckRe
     )
 
 
+# Lowest score that may be reported as "pass". Taken from the threshold sweep in
+# calibration/REPORT.md (EXP2): 95 lets an incomplete header set pass, 96 does not.
+SECURITY_HEADERS_PASS_MIN = 96
+
+
 def _check_security_headers(snapshot: ReconSnapshot, order_index: int) -> CheckResult:
     started = time.perf_counter()
     h = snapshot.response_headers
@@ -171,7 +176,7 @@ def _check_security_headers(snapshot: ReconSnapshot, order_index: int) -> CheckR
     if len(missing_core) >= 2:
         status = "fail"
         summary = f"ขาด Security Headers สำคัญหลายรายการ ({', '.join(missing_core)})"
-    elif missing_core or weak_notes:
+    elif missing_core or weak_notes or score < SECURITY_HEADERS_PASS_MIN:
         status = "warn"
         summary = "มี Security Headers พื้นฐานบางส่วน แต่ยังมีจุดที่ควรเสริมความแข็งแกร่ง"
     else:
